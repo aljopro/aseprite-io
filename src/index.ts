@@ -3,14 +3,14 @@
  *
  * Works in browsers, Node.js, Deno, Bun and workers: it only uses
  * `Uint8Array`, `DataView` and `TextEncoder`/`TextDecoder`, with zlib
- * provided by the pure-JS `fflate` library.
+ * provided by the pure-JS `fflate` and `pako` libraries.
  *
  * @packageDocumentation
  */
 export { AsepriteFile, type BinaryInput, type CelEntry } from './file.js';
 export { AsepriteError, type AsepriteErrorCode } from './errors.js';
 export type { WriteOptions } from './writer.js';
-export type { CompressionLevel } from './zlib.js';
+export type { CompressionLevel, ReadLimits } from './zlib.js';
 export {
   BLEND_MODES,
   EXTERNAL_FILE_TYPES,

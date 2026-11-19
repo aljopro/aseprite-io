@@ -1,16 +1,58 @@
-import { unzlibSync, zlibSync } from 'fflate';
+import { Inflate as PakoInflate, deflate as pakoDeflate } from 'pako';
+import { zlibSync } from 'fflate';
 import { AsepriteError } from './errors.js';
+/** Limits applied while parsing untrusted ASE bytes. */
+export interface ReadLimits {
+  /** Maximum complete input file size; defaults to 128 MiB. */
+  maxInputBytes: number;
+  /** Maximum decoded cel or embedded tileset data; defaults to 64 MiB. */
+  maxDecodedBytes: number;
+  /** Maximum aggregate decoded allocations; defaults to 256 MiB. */
+  maxTotalDecodedBytes: number;
+  /** Maximum canvas, cel, or tileset dimension; defaults to 16,384. */
+  maxDimension: number;
+}
 
 /**
- * Decompresses a zlib stream. With `expectedSize`, output is decoded straight
- * into a buffer of that size (as Aseprite does): data beyond it is ignored and
- * a shorter stream yields a shorter result.
+ * Decompress exactly `expectedSize` bytes with a bounded output buffer.
+ *
+ * The decoder emits output in fixed-size chunks and inflation stops as soon as
+ * a chunk would not fit, so a stream that expands far beyond its declared size
+ * costs one chunk of memory instead of its full expansion. The complete zlib
+ * stream must consume the input and its checksum must match the decoded bytes.
  */
-export function inflate(data: Uint8Array, expectedSize?: number): Uint8Array {
+export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
   try {
-    return expectedSize !== undefined && expectedSize > 0
-      ? unzlibSync(data, { out: new Uint8Array(expectedSize) })
-      : unzlibSync(data);
+    if (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || data.length < 6) {
+      throw new Error('invalid zlib stream or decoded size');
+    }
+    const output = new Uint8Array(expectedSize);
+    let offset = 0;
+    const decoder = new PakoInflate({ chunkSize: 16 * 1024 });
+    let stream: Parameters<typeof decoder.onStart>[0] | undefined;
+    decoder.onStart = (state) => { stream = state; };
+    decoder.onData = (chunk) => {
+      const bytes = chunk as Uint8Array;
+      if (bytes.length > expectedSize - offset) {
+        throw new Error(`decoded data exceeds the declared ${expectedSize} bytes`);
+      }
+      output.set(bytes, offset);
+      offset += bytes.length;
+    };
+    decoder.push(data, true);
+    if (decoder.err !== 0) {
+      throw new Error(decoder.msg || 'invalid or truncated zlib stream');
+    }
+    if (!stream || stream.avail_in !== 0) {
+      throw new Error('trailing bytes after zlib stream');
+    }
+    if (offset !== expectedSize) {
+      throw new Error(`decoded ${offset} bytes, expected ${expectedSize}`);
+    }
+    if (streamAdler32(data) !== adler32(output)) {
+      throw new Error('zlib checksum does not match the decoded data');
+    }
+    return output;
   } catch (e) {
     throw new AsepriteError('DecompressionFailed', `failed to decompress zlib data: ${String(e)}`, {
       cause: e,
@@ -23,6 +65,10 @@ export type CompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 /** Compresses data as a zlib stream (default level 6, the zlib default). */
 export function deflate(data: Uint8Array, level: CompressionLevel = 6): Uint8Array {
+  // fflate's store mode (level 0) marks a full 65,535-byte block as final and
+  // then appends an empty final block, so strict zlib decoders reject payloads
+  // whose length is a multiple of 65,535. pako writes valid stored blocks.
+  if (level === 0) return pakoDeflate(data, { level: 0 });
   return zlibSync(data, { level });
 }
 
@@ -68,16 +114,21 @@ function streamAdler32(stream: Uint8Array): number | undefined {
  * compresses `data`. This keeps byte-perfect round trips for untouched content
  * while staying correct when pixel buffers were edited in place.
  *
- * The check compares `data` against the Adler-32 checksum in the zlib trailer
- * (the same integrity check zlib itself relies on), which costs a single pass
- * over the bytes instead of a full decompression.
+ * Adler-32 is a fast rejection only; equal checksums still require an exact
+ * byte comparison because collisions are possible.
  */
 export function reuseOrDeflate(
   data: Uint8Array,
   original: Uint8Array | undefined,
   level: CompressionLevel = 6,
 ): Uint8Array {
-  if (original && streamAdler32(original) === adler32(data)) return original;
+  if (original && streamAdler32(original) === adler32(data)) {
+    try {
+      if (bytesEqual(inflate(original, data.length), data)) return original;
+    } catch {
+      // Invalid stale streams must be recompressed, not reused.
+    }
+  }
   return deflate(data, level);
 }
 

@@ -18,6 +18,8 @@ export type AsepriteErrorCode =
   | 'InvalidChunkSize'
   /** A user-data property type ID is not recognized. */
   | 'UnsupportedPropertyType'
+  /** A tilemap cel uses a bit width the data model cannot preserve. */
+  | 'UnsupportedTileBitDepth'
   /** A value exceeds a limit of the file format (e.g. more than 256 palette entries). */
   | 'FormatLimitExceeded'
   /** Zlib-compressed data could not be decompressed. */

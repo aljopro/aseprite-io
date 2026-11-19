@@ -1,5 +1,6 @@
+import type { ReadLimits } from './zlib.js';
 import { AsepriteError } from './errors.js';
-import { readAseprite } from './reader.js';
+import { DEFAULT_READ_LIMITS, readAseprite } from './reader.js';
 import {
   bytesPerPixel,
   type Cel,
@@ -106,9 +107,14 @@ export class AsepriteFile {
 
   // --- I/O ---
 
-  /** Parses an Aseprite file from its bytes. Throws {@link AsepriteError} on malformed input. */
-  static read(input: BinaryInput): AsepriteFile {
-    return readAseprite(toBytes(input));
+  /** Parses bytes, bounded by default read limits or the supplied limit overrides. */
+  static read(input: BinaryInput, limits?: Partial<ReadLimits>): AsepriteFile {
+    return readAseprite(toBytes(input), {
+      maxInputBytes: limits?.maxInputBytes ?? DEFAULT_READ_LIMITS.maxInputBytes,
+      maxDecodedBytes: limits?.maxDecodedBytes ?? DEFAULT_READ_LIMITS.maxDecodedBytes,
+      maxTotalDecodedBytes: limits?.maxTotalDecodedBytes ?? DEFAULT_READ_LIMITS.maxTotalDecodedBytes,
+      maxDimension: limits?.maxDimension ?? DEFAULT_READ_LIMITS.maxDimension,
+    });
   }
 
   /** Serializes the file to Aseprite binary format. */

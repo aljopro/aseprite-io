@@ -1,5 +1,6 @@
+import { inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { AsepriteError, AsepriteFile, createPixels } from '../src/index.js';
+import { AsepriteError, AsepriteFile, TilesetFlags, createPixels } from '../src/index.js';
 
 /** Appends raw chunks to frame 0 of a single-frame file and fixes up the sizes. */
 function withExtraChunks(file: AsepriteFile, chunks: Array<{ type: number; data: number[] }>): Uint8Array {
@@ -21,6 +22,56 @@ function withExtraChunks(file: AsepriteFile, chunks: Array<{ type: number; data:
   return out;
 }
 
+function replaceCompressedCel(file: AsepriteFile, width: number, height: number, compressed: Uint8Array): Uint8Array {
+  const bytes = file.write();
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let pos = 144;
+  while (pos + 6 <= bytes.length) {
+    const size = view.getUint32(pos, true);
+    if (view.getUint16(pos + 4, true) === 0x2005) {
+      const data = pos + 6;
+      const output = new Uint8Array(bytes.length - size + 6 + 20 + compressed.length);
+      output.set(bytes.subarray(0, data + 16));
+      const outView = new DataView(output.buffer);
+      outView.setUint16(data + 16, width, true);
+      outView.setUint16(data + 18, height, true);
+      output.set(compressed, data + 20);
+      output.set(bytes.subarray(pos + size), data + 20 + compressed.length);
+      outView.setUint32(pos, 26 + compressed.length, true);
+      outView.setUint32(128, view.getUint32(128, true) - size + 26 + compressed.length, true);
+      outView.setUint32(0, output.length, true);
+      return output;
+    }
+    pos += size;
+  }
+  throw new Error('missing compressed cel');
+}
+
+function setTilemapBits(file: AsepriteFile, bitsPerTile: number): Uint8Array {
+  const bytes = file.write();
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let pos = 144; pos + 6 <= bytes.length;) {
+    const size = view.getUint32(pos, true);
+    if (view.getUint16(pos + 4, true) === 0x2005 && view.getUint16(pos + 13, true) === 3) {
+      view.setUint16(pos + 6 + 20, bitsPerTile, true);
+      return bytes;
+    }
+    pos += size;
+  }
+  throw new Error('missing tilemap cel');
+}
+function compressedCelPayload(bytes: Uint8Array): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let pos = 144; pos + 6 <= bytes.length;) {
+    const size = view.getUint32(pos, true);
+    if (view.getUint16(pos + 4, true) === 0x2005 &&
+        view.getUint16(pos + 13, true) === 2) {
+      return bytes.subarray(pos + 26, pos + size);
+    }
+    pos += size;
+  }
+  throw new Error('missing compressed cel');
+}
 const u16 = (v: number) => [v & 0xff, v >> 8];
 const u32 = (v: number) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >>> 24];
 
@@ -231,11 +282,112 @@ describe('zlib helpers', async () => {
       expect(adler32(data)).toBe(trailer);
     }
   });
-  it('inflate with an expected size truncates or shortens like Aseprite', () => {
+  it('rejects zero-sized cel bombs, mismatched and truncated output', () => {
+    const bomb = deflate(new Uint8Array(1024 * 1024));
+    const file = baseFile();
+    file.setCel(file.layerRef(0)!, 0, { data: new Uint8Array(16), width: 2, height: 2 });
+    const zeroCel = replaceCompressedCel(file, 0, 0, bomb);
+    expect(codeOf(() => AsepriteFile.read(zeroCel))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(bomb, 0))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(deflate(new Uint8Array(10)), 9))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(deflate(new Uint8Array(10)), 11))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(bomb, 32))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(deflate(new Uint8Array(32)).subarray(0, 7), 32))).toBe('DecompressionFailed');
+  });
+  it('preserves valid empty and ordinary streams', () => {
     const data = new Uint8Array(100).map((_, i) => i);
-    expect([...inflate(deflate(data), 40)]).toEqual([...data.subarray(0, 40)]);
-    expect(inflate(deflate(data), 200).length).toBe(100);
-    expect([...inflate(deflate(data))]).toEqual([...data]);
+    expect(inflate(deflate(data), data.length)).toEqual(data);
+    expect(inflate(deflate(new Uint8Array(0)), 0)).toEqual(new Uint8Array(0));
+  });
+
+  it('enforces per-buffer, aggregate, canvas and tile dimensions', () => {
+
+    const largeCel = new AsepriteFile(1, 1, 'rgba');
+    const largeLayer = largeCel.addLayer('L');
+    largeCel.addFrame(100);
+    largeCel.setCel(largeLayer, 0, { data: new Uint8Array(16), width: 2, height: 2 });
+    expect(codeOf(() => AsepriteFile.read(largeCel.write(), { maxDecodedBytes: 15 }))).toBe('FormatLimitExceeded');
+    expect(codeOf(() => AsepriteFile.read(largeCel.write(), { maxDimension: 1 }))).toBe('FormatLimitExceeded');
+    expect(codeOf(() => AsepriteFile.read(baseFile().write(), { maxDecodedBytes: undefined } as never))).toBeUndefined();
+    const overDimension = baseFile().write();
+    const overDimensionView = new DataView(overDimension.buffer);
+    overDimensionView.setUint16(8, 20000, true);
+    overDimensionView.setUint16(10, 1, true);
+    expect(codeOf(() => AsepriteFile.read(overDimension))).toBe('FormatLimitExceeded');
+    expect(codeOf(() => AsepriteFile.read(baseFile().write(), { maxDecodedBytes: 15 }))).toBe('FormatLimitExceeded');
+
+    const aggregate = baseFile();
+    const aggregateLayer = aggregate.layerRef(0)!;
+    aggregate.setCel(aggregateLayer, 0, { data: new Uint8Array(16), width: 2, height: 2 });
+    aggregate.addFrame(100);
+    aggregate.setCel(aggregateLayer, 1, { data: new Uint8Array(16), width: 2, height: 2 });
+    expect(codeOf(() => AsepriteFile.read(aggregate.write(), { maxTotalDecodedBytes: 31 }))).toBe('FormatLimitExceeded');
+
+    const external = baseFile();
+    external.addTileset({
+      id: 0, flags: TilesetFlags.ExternalLink, name: 'external', tileCount: 0,
+      tileWidth: 8, tileHeight: 8, baseIndex: 1,
+      data: { type: 'external', externalFileId: 1, tilesetIdInExternal: 0 }, tileUserData: [],
+    });
+    expect(codeOf(() => AsepriteFile.read(external.write(), { maxDimension: 4 }))).toBe('FormatLimitExceeded');
+  });
+
+  it('rejects non-32-bit tilemap cels without truncating tiles', () => {
+    const file = baseFile();
+    const tileset = file.addTileset({
+      id: 0, flags: TilesetFlags.EmbeddedTiles, name: 't', tileCount: 1,
+      tileWidth: 1, tileHeight: 1, baseIndex: 1,
+      data: { type: 'embedded', pixels: new Uint8Array(4) }, tileUserData: [],
+    });
+    const layer = file.addTilemapLayer('tiles', tileset);
+    file.setTilemapCel(layer, 0, [1], 1, 1);
+    for (const bitDepth of [8, 16]) {
+      expect(codeOf(() => AsepriteFile.read(setTilemapBits(file, bitDepth)))).toBe('UnsupportedTileBitDepth');
+    }
+    const cel = file.resolveCel(layer, 0);
+    expect(cel?.kind.type).toBe('tilemap');
+    if (cel?.kind.type === 'tilemap') {
+      cel.kind.bitsPerTile = 16;
+      expect(codeOf(() => file.write())).toBe('UnsupportedTileBitDepth');
+    }
+  });
+  it('rejects compressed suffixes, incomplete blocks and checksum mismatches', () => {
+    const data = new Uint8Array(64).fill(9);
+    const valid = deflate(data, 0);
+    const suffixed = new Uint8Array(valid.length + 1);
+    suffixed.set(valid);
+    suffixed[suffixed.length - 1] = 0xaa;
+    expect(codeOf(() => inflate(suffixed, data.length))).toBe('DecompressionFailed');
+    const matchingChecksumSuffix = new Uint8Array(valid.length + 4);
+    matchingChecksumSuffix.set(valid);
+    const checksum = adler32(data);
+    new DataView(matchingChecksumSuffix.buffer).setUint32(valid.length, checksum, false);
+    expect(codeOf(() => inflate(matchingChecksumSuffix, data.length))).toBe('DecompressionFailed');
+    const nonFinal = valid.slice();
+    nonFinal[2] = (nonFinal[2]! & 0xfe);
+    expect(codeOf(() => inflate(nonFinal, data.length))).toBe('DecompressionFailed');
+    const badChecksum = valid.slice();
+    const last = badChecksum.length - 1;
+    badChecksum[last] = (badChecksum[last]! ^ 1);
+    expect(codeOf(() => inflate(badChecksum, data.length))).toBe('DecompressionFailed');
+  });
+  it('writes valid stored streams at exact block boundaries', () => {
+    for (const size of [65535, 131070]) {
+      const height = size / 65535;
+      const file = new AsepriteFile(65535, height, 'indexed');
+      file.setPalette([{ r: 0, g: 0, b: 0, a: 255 }]);
+      const layer = file.addLayer('indexed');
+      file.addFrame(100);
+      const data = new Uint8Array(size).map((_, i) => i & 0xff);
+      file.setCel(layer, 0, { data, width: 65535, height });
+      const written = file.write({ compressionLevel: 0 });
+      expect(new Uint8Array(inflateSync(compressedCelPayload(written)))).toEqual(data);
+    }
+  });
+
+  it('rejects input larger than configured limits', () => {
+    const file = baseFile();
+    expect(codeOf(() => AsepriteFile.read(file.write(), { maxInputBytes: 1 }))).toBe('FormatLimitExceeded');
   });
 });
 
