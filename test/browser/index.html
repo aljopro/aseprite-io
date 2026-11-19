@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>aseprite-io browser smoke test</title>
+  <script type="importmap">
+    { "imports": { "fflate": "/node_modules/fflate/esm/browser.js" } }
+  </script>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+    .ok { color: #137333; } .fail { color: #b3261e; }
+    canvas { image-rendering: pixelated; width: 96px; border: 1px solid #ccc; margin: 4px; }
+  </style>
+</head>
+<body>
+  <h1>aseprite-io in the browser</h1>
+  <p>Run <code>npm run build</code>, serve the repo root, and open <code>/test/browser/</code>.</p>
+  <p id="summary">Running…</p>
+  <ul id="results"></ul>
+  <div id="previews"></div>
+  <script type="module">
+    import { AsepriteFile, createPixels } from '/dist/index.js';
+
+    const fixtures = [
+      '1empty3', '2f-index-3x3', '2x2tilemap2x2tile', '2x3tilemap-indexed', '3x2tilemap-grayscale',
+      '4f-index-4x4', 'abcd', 'bg-index-3', 'cut_paste', 'file-tests-props', 'groups2', 'groups3abc',
+      'link', 'point2frames', 'point4frames', 'slices', 'slices-moving', 'tags3', 'tags3x123reps',
+    ];
+    const results = document.getElementById('results');
+    let passed = 0;
+
+    function preview(file) {
+      // Draw the first RGBA cel of frame 0 to a canvas.
+      if (file.colorMode !== 'rgba') return;
+      for (const { frame, layer } of file.cels()) {
+        const cel = frame === 0 && file.resolveCel(layer, frame);
+        if (!cel || cel.kind.type !== 'compressed') continue;
+        const { pixels } = cel.kind;
+        const canvas = document.createElement('canvas');
+        canvas.width = pixels.width; canvas.height = pixels.height;
+        canvas.getContext('2d').putImageData(
+          new ImageData(new Uint8ClampedArray(pixels.data), pixels.width, pixels.height), 0, 0);
+        document.getElementById('previews').append(canvas);
+        return;
+      }
+    }
+
+    for (const name of fixtures) {
+      const li = document.createElement('li');
+      try {
+        const bytes = new Uint8Array(await (await fetch(`/test/fixtures/${name}.aseprite`)).arrayBuffer());
+        const file = AsepriteFile.read(bytes);
+        const out = file.write();
+        const same = out.length === bytes.length && out.every((b, i) => b === bytes[i]);
+        li.className = same ? 'ok' : 'fail';
+        li.textContent = `${name}: ${same ? 'byte-identical' : 'MISMATCH'} (${file.width}×${file.height}, ${file.colorMode}, ${file.layers.length} layers, ${file.frames.length} frames)`;
+        if (same) passed++;
+        preview(file);
+      } catch (e) {
+        li.className = 'fail';
+        li.textContent = `${name}: ${e}`;
+      }
+      results.append(li);
+    }
+
+    // Create a file from scratch and offer it as a download (Blob), the typical browser flow.
+    const f = new AsepriteFile(8, 8, 'rgba');
+    const layer = f.addLayer('Checker');
+    f.addFrame(100);
+    const data = new Uint8Array(8 * 8 * 4);
+    for (let i = 0; i < 64; i++) data.set(((i >> 3) + i) % 2 ? [255, 0, 128, 255] : [0, 0, 0, 0], i * 4);
+    f.setCel(layer, 0, createPixels(data, 8, 8, 'rgba'));
+    const created = AsepriteFile.read(f.write());
+    const createdOk = created.layers[0].name === 'Checker';
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([f.write()], { type: 'application/octet-stream' }));
+    link.download = 'checker.aseprite';
+    link.textContent = 'Download generated checker.aseprite';
+
+    const total = fixtures.length;
+    const summary = document.getElementById('summary');
+    summary.className = passed === total && createdOk ? 'ok' : 'fail';
+    summary.textContent = `${passed}/${total} fixtures round-trip byte-identically; create-from-scratch ${createdOk ? 'OK' : 'FAILED'}. `;
+    summary.append(link);
+    window.__result = { passed, total, createdOk };
+  </script>
+</body>
+</html>

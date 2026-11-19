@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Tests with coverage (fails below 90%)
+        run: npm run test:coverage
+      - run: npm run build
+      - run: npm run check:browser
+      - run: npm run smoke
+      - name: Coverage summary
+        if: matrix.node == 24
+        run: |
+          node -e "
+          const t = require('./coverage/coverage-summary.json').total;
+          const rows = ['lines','statements','functions','branches'].map(k => '| ' + k + ' | ' + t[k].pct + '% |').join('\n');
+          require('fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, '### Coverage\n\n| Metric | Covered |\n|---|---|\n' + rows + '\n');
+          "
+      - name: Upload coverage report
+        if: matrix.node == 24
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  runtime-compat:
+    # The dev tooling needs Node 22+, but the published package supports Node 18+.
+    name: Runtime smoke (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node scripts/smoke.mjs
+
+  site:
+    name: Demo and API docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site/
+          retention-days: 7
+
+  # The single required status check for branch protection: it passes only
+  # when every job above passed, so new jobs never need ruleset changes.
+  ci-ok:
+    name: CI ok
+    if: always()
+    needs: [test, runtime-compat, site]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs passed
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "A required job did not succeed." && exit 1
+          fi

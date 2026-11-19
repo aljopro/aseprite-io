@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>aseprite-io demo</title>
+  <meta name="description" content="Read, render, build and write Aseprite files in the browser with aseprite-io." />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>aseprite-io</h1>
+        <p>Read and write Aseprite files in the browser. Nothing is uploaded; everything runs in this page.</p>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" id="tab-viewer" aria-selected="true" aria-controls="panel-viewer">Viewer</button>
+      <button role="tab" id="tab-stack" aria-selected="false" aria-controls="panel-stack">Canvas → Aseprite</button>
+      <a class="tab-link" href="./api/">API docs</a>
+      <a class="tab-link" href="https://www.npmjs.com/package/aseprite-io">npm</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Viewer -->
+    <section id="panel-viewer" role="tabpanel" aria-labelledby="tab-viewer">
+      <div class="viewer">
+        <div class="stage-col">
+          <label id="drop" class="drop" tabindex="0">
+            <input id="file-input" type="file" accept=".ase,.aseprite" hidden />
+            <canvas id="view-canvas" width="1" height="1" aria-label="Rendered frame"></canvas>
+            <span id="drop-hint">Drop an <b>.aseprite</b> file here, or click to choose one</span>
+          </label>
+          <div class="controls">
+            <button id="play" class="btn" disabled>▶ Play</button>
+            <input id="scrub" type="range" min="0" max="0" value="0" disabled aria-label="Frame" />
+            <span id="frame-label" class="mono">–</span>
+            <label class="zoom">Zoom <input id="zoom" type="range" min="1" max="64" value="8" /></label>
+          </div>
+          <div class="samples">
+            <span>Samples from Aseprite's test suite:</span>
+            <select id="samples" aria-label="Sample files"></select>
+          </div>
+        </div>
+        <aside class="side">
+          <div class="card">
+            <h2>File</h2>
+            <dl id="info" class="info"><dt>Nothing loaded</dt><dd></dd></dl>
+            <div class="row">
+              <button id="download" class="btn" disabled>Re-encode &amp; download</button>
+            </div>
+            <p id="roundtrip" class="note"></p>
+          </div>
+          <div class="card">
+            <h2>Layers</h2>
+            <ul id="layers" class="list"></ul>
+          </div>
+          <div class="card">
+            <h2>Tags</h2>
+            <ul id="tags" class="list"><li class="muted">None</li></ul>
+          </div>
+          <div class="card" id="palette-card" hidden>
+            <h2>Palette</h2>
+            <div id="palette" class="palette"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Canvas stack builder -->
+    <section id="panel-stack" role="tabpanel" aria-labelledby="tab-stack" hidden>
+      <p class="lede">
+        Each canvas below is a layer. Paint on them, and the preview stacks them on top of each other,
+        just like Aseprite. Add frames to animate, then export a real <b>.aseprite</b> file built with
+        <code>aseprite-io</code>.
+      </p>
+      <div class="stack">
+        <div class="layers-col">
+          <div class="toolbar">
+            <div id="swatches" class="swatches" role="radiogroup" aria-label="Color"></div>
+            <button id="eraser" class="btn small" aria-pressed="false">Eraser</button>
+            <button id="clear-layer" class="btn small">Clear layer</button>
+          </div>
+          <div id="layer-canvases" class="layer-canvases"></div>
+          <div class="row">
+            <button id="add-layer" class="btn small">+ Layer</button>
+          </div>
+        </div>
+        <div class="preview-col">
+          <div class="card">
+            <h2>Stacked preview</h2>
+            <div id="stack-preview" class="stack-preview" aria-label="Stacked preview"></div>
+            <div class="frames">
+              <div id="frame-strip" class="frame-strip"></div>
+              <div class="row">
+                <button id="add-frame" class="btn small">+ Frame (copy)</button>
+                <button id="del-frame" class="btn small">− Frame</button>
+                <button id="stack-play" class="btn small">▶ Play</button>
+                <label class="small">ms <input id="duration" type="number" min="10" max="2000" step="10" value="150" /></label>
+              </div>
+            </div>
+            <label class="explode"><input id="explode" type="checkbox" /> Exploded 3D view</label>
+          </div>
+          <div class="card">
+            <h2>Export</h2>
+            <div class="row">
+              <button id="export" class="btn primary">Download .aseprite</button>
+              <button id="open-in-viewer" class="btn">Open in viewer</button>
+            </div>
+            <pre id="code" class="code"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://github.com/aljopro/aseprite-io">Source</a> · MIT OR Apache-2.0 · Port of the Rust crate
+    <a href="https://github.com/spebern/aseprite-io">aseprite-io</a>
+  </footer>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

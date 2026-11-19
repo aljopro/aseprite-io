@@ -1,0 +1,11 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "out": "site/api",
+  "name": "aseprite-io",
+  "readme": "README.md",
+  "projectDocuments": ["docs/guide.md", "docs/benchmarks.md"],
+  "excludeInternal": true,
+  "includeVersion": true,
+  "navigationLinks": { "Demo": "../", "npm": "https://www.npmjs.com/package/aseprite-io" }
+}

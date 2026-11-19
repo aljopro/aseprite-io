@@ -1,0 +1,82 @@
+name: Release
+
+# Publishes to npm when a version bump lands on main.
+# Open a PR that changes "version" in package.json (e.g. `npm version minor --no-git-tag-version`);
+# once it is merged, this workflow publishes it, then tags the commit and creates a GitHub Release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+            echo "v$version is already released; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$version is new; releasing."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [check, ci]
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write # create the tag and GitHub Release
+      id-token: write # npm provenance and trusted publishing
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run build
+
+      - name: Publish to npm
+        # Uses npm trusted publishing (OIDC) when configured on npmjs.com;
+        # otherwise falls back to the NPM_TOKEN repository secret.
+        run: |
+          tag=latest
+          case "$VERSION" in *-*) tag=next ;; esac
+          npm publish --provenance --access public --tag "$tag"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Tag and create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes $prerelease
