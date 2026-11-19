@@ -4,7 +4,7 @@ title: Guide
 
 # Using aseprite-io
 
-This guide walks through the main tasks: reading, rendering, creating, editing and saving Aseprite files. For every type and method, see the [API reference](https://aljopro.github.io/aseprite-io/api/).
+This guide walks through the main tasks: reading, rendering, creating, editing and saving Aseprite files. For every type and method, see the [API reference](https://jensenchappell.com/aseprite-io/api/).
 
 - [Concepts](#concepts)
 - [Reading files](#reading-files)
