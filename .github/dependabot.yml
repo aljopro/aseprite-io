@@ -15,3 +15,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # One PR per week for all workflow action bumps, instead of one per action.
+      github-actions:
+        patterns: ['*']
