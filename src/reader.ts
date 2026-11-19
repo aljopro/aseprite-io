@@ -79,6 +79,8 @@ export function readAseprite(bytes: Uint8Array, limits: ReadLimits = DEFAULT_REA
   const width = r.word();
   const height = r.word();
   const colorMode = colorModeFromDepth(r.word());
+  checkDimensions(width, height, limits);
+  checkDecodedSize(width * height * bytesPerPixel(colorMode), limits, { total: 0 });
   const flags = r.dword();
   const deprecatedSpeed = r.word();
   r.skip(8);
@@ -332,13 +334,18 @@ function readCelChunk(
       const yFlipBitmask = r.dword();
       const dFlipBitmask = r.dword();
       r.skip(10);
+      // The current ASE format writes 32-bit tile entries. The public model and
+      // writer also store each tile as a Uint32; reject other widths rather
+      // than silently truncating their packed representation.
+      if (bitsPerTile !== 32) {
+        throw new AsepriteError('UnsupportedTileBitDepth', `unsupported tile bit depth ${bitsPerTile}; only 32-bit tiles are supported`);
+      }
+      const size = w * h * 4;
+      const count = w * h;
       checkDimensions(w, h, limits);
-      const size = w * h * Math.ceil(bitsPerTile / 8);
       checkDecodedSize(size, limits, budget);
       const compressed = r.rest();
       const raw = inflate(compressed, size);
-      const count = Math.min(w * h, Math.floor(raw.length / 4));
-      checkDecodedSize(count * 4, limits, budget);
       const tiles = new Uint32Array(count);
       const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
       for (let i = 0; i < count; i++) tiles[i] = view.getUint32(i * 4, true);
@@ -603,18 +610,17 @@ function readTilesetChunk(
   const name = r.string();
 
   let data: TilesetData = { type: 'empty' };
+  checkDimensions(tileWidth, tileHeight, limits);
+  checkDecodedSize(tileCount * 8, limits, budget);
   if (flags & TilesetFlags.ExternalLink) {
     data = { type: 'external', externalFileId: r.dword(), tilesetIdInExternal: r.dword() };
   }
   if (flags & TilesetFlags.EmbeddedTiles) {
     const compressed = r.read(r.dword());
     const size = tileWidth * tileHeight * tileCount * bytesPerPixel(file._colorMode);
-    checkDimensions(tileWidth, tileHeight, limits);
     checkDecodedSize(size, limits, budget);
     data = { type: 'embedded', pixels: inflate(compressed, size), originalCompressed: compressed };
   }
-
-  checkDecodedSize(tileCount * 4, limits, budget);
   file._tilesets.push({
     id,
     flags,

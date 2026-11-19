@@ -1,14 +1,27 @@
-import { Unzlib, zlibSync } from 'fflate';
+import { Inflate as PakoInflate, deflate as pakoDeflate } from 'pako';
+import { zlibSync } from 'fflate';
 import { AsepriteError } from './errors.js';
-
+/** Limits applied while parsing untrusted ASE bytes. */
 export interface ReadLimits {
+  /** Maximum complete input file size; defaults to 128 MiB. */
   maxInputBytes: number;
+  /** Maximum decoded cel or embedded tileset data; defaults to 64 MiB. */
   maxDecodedBytes: number;
+  /** Maximum aggregate decoded allocations; defaults to 256 MiB. */
   maxTotalDecodedBytes: number;
+  /** Maximum canvas, cel, or tileset dimension; defaults to 16,384. */
   maxDimension: number;
 }
 
-/** Decompress exactly the declared size, feeding bounded input chunks to fflate. */
+/**
+ * Decompress exactly `expectedSize` bytes with a bounded output buffer.
+ *
+ * The decoder emits output in fixed-size chunks and inflation stops as soon as
+ * a chunk would not fit, so a stream that expands far beyond its declared size
+ * costs one chunk of memory instead of its full expansion. The zlib trailer at
+ * the end of `data` is checked against the decoded bytes, which also rejects
+ * bytes appended after the end of the stream.
+ */
 export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
   try {
     if (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || data.length < 6) {
@@ -16,20 +29,24 @@ export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
     }
     const output = new Uint8Array(expectedSize);
     let offset = 0;
-    const decoder = new Unzlib((chunk) => {
-      if (chunk.length > expectedSize - offset) throw new Error('decoded data exceeds declared size');
-      output.set(chunk, offset);
-      offset += chunk.length;
-    });
-    // A small compressed chunk bounds fflate's temporary output even for a bomb.
-    // Keep the trailer for the final push; fflate does not validate its checksum.
-    const end = data.length - 4;
-    for (let pos = 0; pos < end; pos += 256) {
-      decoder.push(data.subarray(pos, Math.min(end, pos + 256)), false);
+    const decoder = new PakoInflate({ chunkSize: 16 * 1024 });
+    decoder.onData = (chunk) => {
+      const bytes = chunk as Uint8Array;
+      if (bytes.length > expectedSize - offset) {
+        throw new Error(`decoded data exceeds the declared ${expectedSize} bytes`);
+      }
+      output.set(bytes, offset);
+      offset += bytes.length;
+    };
+    decoder.push(data, true);
+    if (decoder.err !== 0) {
+      throw new Error(decoder.msg || 'invalid or truncated zlib stream');
     }
-    decoder.push(data.subarray(end), true);
-    if (offset !== expectedSize || streamAdler32(data) !== adler32(output)) {
-      throw new Error('decoded size or zlib checksum mismatch');
+    if (offset !== expectedSize) {
+      throw new Error(`decoded ${offset} bytes, expected ${expectedSize}`);
+    }
+    if (streamAdler32(data) !== adler32(output)) {
+      throw new Error('zlib checksum does not match the decoded data');
     }
     return output;
   } catch (e) {
@@ -44,6 +61,10 @@ export type CompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 /** Compresses data as a zlib stream (default level 6, the zlib default). */
 export function deflate(data: Uint8Array, level: CompressionLevel = 6): Uint8Array {
+  // fflate's store mode (level 0) marks a full 65,535-byte block as final and
+  // then appends an empty final block, so strict zlib decoders reject payloads
+  // whose length is a multiple of 65,535. pako writes valid stored blocks.
+  if (level === 0) return pakoDeflate(data, { level: 0 });
   return zlibSync(data, { level });
 }
 

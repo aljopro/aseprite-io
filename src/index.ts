@@ -3,7 +3,7 @@
  *
  * Works in browsers, Node.js, Deno, Bun and workers: it only uses
  * `Uint8Array`, `DataView` and `TextEncoder`/`TextDecoder`, with zlib
- * provided by the pure-JS `fflate` library.
+ * provided by the pure-JS `fflate` and `pako` libraries.
  *
  * @packageDocumentation
  */

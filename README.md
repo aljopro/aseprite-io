@@ -9,7 +9,7 @@ A TypeScript port of the Rust crate [`aseprite-io`](https://github.com/spebern/a
 - All layer types (normal, group, tilemap) with blend modes, opacity and flags.
 - Animation tags, slices (nine-patch and pivot), and user data with typed properties (including nested maps, vectors, 64-bit integers as `bigint`, and UUIDs).
 - Tilesets (embedded and external), tilemap cels, linked cels, cel extras, color profiles, external files, and legacy palette and mask chunks.
-- Runs anywhere: it only needs `Uint8Array`, `DataView` and `TextEncoder`/`TextDecoder`. Its one dependency is [`fflate`](https://github.com/101arrowz/fflate), a small pure-JS zlib. No Node built-ins, no WASM, no async.
+- Runs anywhere: it only needs `Uint8Array`, `DataView` and `TextEncoder`/`TextDecoder`. Its pure-JS zlib dependencies are [`fflate`](https://github.com/101arrowz/fflate) and [`pako`](https://github.com/nodeca/pako). No Node built-ins, no WASM, no async.
 - Ships as ESM and CommonJS with TypeScript types, and is tree-shakeable (`sideEffects: false`).
 - Fast: reading or writing a 2,000-frame file takes about 10 ms. See [benchmarks](docs/benchmarks.md).
 
@@ -40,7 +40,7 @@ for (const tag of file.tags) console.log('tag:', tag.name, tag.fromFrame, '→',
 
 `AsepriteFile.read` accepts a `Uint8Array` (including a Node `Buffer`), an `ArrayBuffer`, or any `ArrayBufferView`.
 
-By default, reading enforces a 128 MiB input limit, a 64 MiB per decoded cel or tileset limit, a 256 MiB aggregate decoded-data limit, and a maximum cel/tile dimension of 16,384. Hosts can override individual limits:
+By default, reading enforces a 128 MiB input limit, a 64 MiB per decoded cel or tileset limit, a 256 MiB aggregate decoded-data limit, and a maximum canvas/cel/tile dimension of 16,384. The canvas pixel area is also limited to 64 MiB of decoded pixel data. Hosts can override individual limits:
 
 ```ts
 const file = AsepriteFile.read(bytes, { maxTotalDecodedBytes: 64 * 1024 * 1024 });
@@ -148,7 +148,7 @@ try {
 }
 ```
 
-The codes are `UnexpectedEof`, `InvalidMagic`, `UnsupportedColorDepth`, `FrameOutOfBounds`, `PixelSizeMismatch`, `InvalidFrameRange`, `MissingPalette`, `InvalidChunkSize`, `UnsupportedPropertyType`, `FormatLimitExceeded` and `DecompressionFailed`.
+The codes are `UnexpectedEof`, `InvalidMagic`, `UnsupportedColorDepth`, `FrameOutOfBounds`, `PixelSizeMismatch`, `InvalidFrameRange`, `MissingPalette`, `InvalidChunkSize`, `UnsupportedPropertyType`, `UnsupportedTileBitDepth`, `FormatLimitExceeded` and `DecompressionFailed`.
 
 ## Differences from the Rust crate
 
