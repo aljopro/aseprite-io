@@ -13,7 +13,7 @@ A TypeScript port of the Rust crate [`aseprite-io`](https://github.com/spebern/a
 - Ships as ESM and CommonJS with TypeScript types, and is tree-shakeable (`sideEffects: false`).
 - Fast: reading or writing a 2,000-frame file takes about 10 ms. See [benchmarks](docs/benchmarks.md).
 
-**[Live demo](https://aljopro.github.io/aseprite-io/)** · **[Guide](docs/guide.md)** · **[API reference](https://aljopro.github.io/aseprite-io/api/)**
+**[Live demo](https://jensenchappell.com/aseprite-io/)** · **[Guide](docs/guide.md)** · **[API reference](https://jensenchappell.com/aseprite-io/api/)**
 
 ## Install
 
