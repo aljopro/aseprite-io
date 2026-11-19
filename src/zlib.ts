@@ -18,9 +18,8 @@ export interface ReadLimits {
  *
  * The decoder emits output in fixed-size chunks and inflation stops as soon as
  * a chunk would not fit, so a stream that expands far beyond its declared size
- * costs one chunk of memory instead of its full expansion. The zlib trailer at
- * the end of `data` is checked against the decoded bytes, which also rejects
- * bytes appended after the end of the stream.
+ * costs one chunk of memory instead of its full expansion. The complete zlib
+ * stream must consume the input and its checksum must match the decoded bytes.
  */
 export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
   try {
@@ -30,6 +29,8 @@ export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
     const output = new Uint8Array(expectedSize);
     let offset = 0;
     const decoder = new PakoInflate({ chunkSize: 16 * 1024 });
+    let stream: Parameters<typeof decoder.onStart>[0] | undefined;
+    decoder.onStart = (state) => { stream = state; };
     decoder.onData = (chunk) => {
       const bytes = chunk as Uint8Array;
       if (bytes.length > expectedSize - offset) {
@@ -41,6 +42,9 @@ export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
     decoder.push(data, true);
     if (decoder.err !== 0) {
       throw new Error(decoder.msg || 'invalid or truncated zlib stream');
+    }
+    if (!stream || stream.avail_in !== 0) {
+      throw new Error('trailing bytes after zlib stream');
     }
     if (offset !== expectedSize) {
       throw new Error(`decoded ${offset} bytes, expected ${expectedSize}`);

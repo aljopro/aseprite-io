@@ -8,7 +8,7 @@ A TypeScript port of the Rust crate [`aseprite-io`](https://github.com/spebern/a
 - Full [file format](https://github.com/aseprite/aseprite/blob/main/docs/ase-file-specs.md) support: RGBA, grayscale and indexed color modes.
 - All layer types (normal, group, tilemap) with blend modes, opacity and flags.
 - Animation tags, slices (nine-patch and pivot), and user data with typed properties (including nested maps, vectors, 64-bit integers as `bigint`, and UUIDs).
-- Tilesets (embedded and external), tilemap cels, linked cels, cel extras, color profiles, external files, and legacy palette and mask chunks.
+- Tilesets (embedded and external), 32-bit tilemap cels (the width specified by the current ASE format), linked cels, cel extras, color profiles, external files, and legacy palette and mask chunks.
 - Runs anywhere: it only needs `Uint8Array`, `DataView` and `TextEncoder`/`TextDecoder`. Its pure-JS zlib dependencies are [`fflate`](https://github.com/101arrowz/fflate) and [`pako`](https://github.com/nodeca/pako). No Node built-ins, no WASM, no async.
 - Ships as ESM and CommonJS with TypeScript types, and is tree-shakeable (`sideEffects: false`).
 - Fast: reading or writing a 2,000-frame file takes about 10 ms. See [benchmarks](docs/benchmarks.md).

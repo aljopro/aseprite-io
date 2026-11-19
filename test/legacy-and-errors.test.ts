@@ -1,3 +1,4 @@
+import { inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { AsepriteError, AsepriteFile, TilesetFlags, createPixels } from '../src/index.js';
 
@@ -58,6 +59,18 @@ function setTilemapBits(file: AsepriteFile, bitsPerTile: number): Uint8Array {
     pos += size;
   }
   throw new Error('missing tilemap cel');
+}
+function compressedCelPayload(bytes: Uint8Array): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let pos = 144; pos + 6 <= bytes.length;) {
+    const size = view.getUint32(pos, true);
+    if (view.getUint16(pos + 4, true) === 0x2005 &&
+        view.getUint16(pos + 13, true) === 2) {
+      return bytes.subarray(pos + 26, pos + size);
+    }
+    pos += size;
+  }
+  throw new Error('missing compressed cel');
 }
 const u16 = (v: number) => [v & 0xff, v >> 8];
 const u32 = (v: number) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >>> 24];
@@ -295,6 +308,12 @@ describe('zlib helpers', async () => {
     largeCel.setCel(largeLayer, 0, { data: new Uint8Array(16), width: 2, height: 2 });
     expect(codeOf(() => AsepriteFile.read(largeCel.write(), { maxDecodedBytes: 15 }))).toBe('FormatLimitExceeded');
     expect(codeOf(() => AsepriteFile.read(largeCel.write(), { maxDimension: 1 }))).toBe('FormatLimitExceeded');
+    expect(codeOf(() => AsepriteFile.read(baseFile().write(), { maxDecodedBytes: undefined } as never))).toBeUndefined();
+    const overDimension = baseFile().write();
+    const overDimensionView = new DataView(overDimension.buffer);
+    overDimensionView.setUint16(8, 20000, true);
+    overDimensionView.setUint16(10, 1, true);
+    expect(codeOf(() => AsepriteFile.read(overDimension))).toBe('FormatLimitExceeded');
     expect(codeOf(() => AsepriteFile.read(baseFile().write(), { maxDecodedBytes: 15 }))).toBe('FormatLimitExceeded');
 
     const aggregate = baseFile();
@@ -325,6 +344,12 @@ describe('zlib helpers', async () => {
     for (const bitDepth of [8, 16]) {
       expect(codeOf(() => AsepriteFile.read(setTilemapBits(file, bitDepth)))).toBe('UnsupportedTileBitDepth');
     }
+    const cel = file.resolveCel(layer, 0);
+    expect(cel?.kind.type).toBe('tilemap');
+    if (cel?.kind.type === 'tilemap') {
+      cel.kind.bitsPerTile = 16;
+      expect(codeOf(() => file.write())).toBe('UnsupportedTileBitDepth');
+    }
   });
   it('rejects compressed suffixes, incomplete blocks and checksum mismatches', () => {
     const data = new Uint8Array(64).fill(9);
@@ -333,6 +358,11 @@ describe('zlib helpers', async () => {
     suffixed.set(valid);
     suffixed[suffixed.length - 1] = 0xaa;
     expect(codeOf(() => inflate(suffixed, data.length))).toBe('DecompressionFailed');
+    const matchingChecksumSuffix = new Uint8Array(valid.length + 4);
+    matchingChecksumSuffix.set(valid);
+    const checksum = adler32(data);
+    new DataView(matchingChecksumSuffix.buffer).setUint32(valid.length, checksum, false);
+    expect(codeOf(() => inflate(matchingChecksumSuffix, data.length))).toBe('DecompressionFailed');
     const nonFinal = valid.slice();
     nonFinal[2] = (nonFinal[2]! & 0xfe);
     expect(codeOf(() => inflate(nonFinal, data.length))).toBe('DecompressionFailed');
@@ -341,10 +371,17 @@ describe('zlib helpers', async () => {
     badChecksum[last] = (badChecksum[last]! ^ 1);
     expect(codeOf(() => inflate(badChecksum, data.length))).toBe('DecompressionFailed');
   });
-  it('writes stored streams that end exactly on a block boundary', () => {
+  it('writes valid stored streams at exact block boundaries', () => {
     for (const size of [65535, 131070]) {
+      const height = size / 65535;
+      const file = new AsepriteFile(65535, height, 'indexed');
+      file.setPalette([{ r: 0, g: 0, b: 0, a: 255 }]);
+      const layer = file.addLayer('indexed');
+      file.addFrame(100);
       const data = new Uint8Array(size).map((_, i) => i & 0xff);
-      expect(inflate(deflate(data, 0), size)).toEqual(data);
+      file.setCel(layer, 0, { data, width: 65535, height });
+      const written = file.write({ compressionLevel: 0 });
+      expect(new Uint8Array(inflateSync(compressedCelPayload(written)))).toEqual(data);
     }
   });
 

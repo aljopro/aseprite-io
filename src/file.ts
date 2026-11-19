@@ -109,7 +109,12 @@ export class AsepriteFile {
 
   /** Parses bytes, bounded by default read limits or the supplied limit overrides. */
   static read(input: BinaryInput, limits?: Partial<ReadLimits>): AsepriteFile {
-    return readAseprite(toBytes(input), { ...DEFAULT_READ_LIMITS, ...limits });
+    return readAseprite(toBytes(input), {
+      maxInputBytes: limits?.maxInputBytes ?? DEFAULT_READ_LIMITS.maxInputBytes,
+      maxDecodedBytes: limits?.maxDecodedBytes ?? DEFAULT_READ_LIMITS.maxDecodedBytes,
+      maxTotalDecodedBytes: limits?.maxTotalDecodedBytes ?? DEFAULT_READ_LIMITS.maxTotalDecodedBytes,
+      maxDimension: limits?.maxDimension ?? DEFAULT_READ_LIMITS.maxDimension,
+    });
   }
 
   /** Serializes the file to Aseprite binary format. */

@@ -432,6 +432,9 @@ function encodeCel(cel: Cel, layerIndex: number, level: CompressionLevel): Uint8
       w.word(k.sourceFrame);
       break;
     case 'tilemap': {
+      if (k.bitsPerTile !== 32) {
+        throw new AsepriteError('UnsupportedTileBitDepth', `unsupported tile bit depth ${k.bitsPerTile}; only 32-bit tiles are supported`);
+      }
       w.word(k.width).word(k.height).word(k.bitsPerTile);
       w.dword(k.tileIdBitmask).dword(k.xFlipBitmask).dword(k.yFlipBitmask).dword(k.dFlipBitmask);
       w.zeros(10);
