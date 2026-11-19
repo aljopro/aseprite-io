@@ -46,9 +46,9 @@ Merges that don't change the version don't publish anything. To retry a failed r
 
 ### One-time npm setup
 
-Use one of these:
+Until npm credentials are configured, the Release workflow skips publishing (with a notice in the run summary). Use one of these:
 
-- **Trusted publishing (recommended, no secrets):** after the first publish, open the package's settings on npmjs.com, add a trusted publisher for GitHub Actions, and set repository `aljopro/aseprite-io`, workflow `release.yml`, environment `npm`.
+- **Trusted publishing (recommended, no secrets):** after the first publish, open the package's settings on npmjs.com, add a trusted publisher for GitHub Actions, and set repository `aljopro/aseprite-io`, workflow `release.yml`, environment `npm`. Then set the repository variable `NPM_TRUSTED_PUBLISHING` to `true` (`gh variable set NPM_TRUSTED_PUBLISHING --body true`), and delete the `NPM_TOKEN` secret if you had one.
 - **Token:** create an npm automation (granular) token with publish rights and add it as the `NPM_TOKEN` repository secret. The first publish of a new package must use a token or be done manually with `npm publish`.
 
 The `npm` GitHub environment used by the release job can also require a manual approval before publishing (Settings → Environments → npm → Required reviewers).
