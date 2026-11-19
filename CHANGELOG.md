@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve edited palettes when saving indexed files with legacy palette chunks.
+
 ## 0.1.0
 
 First release: a TypeScript port of the Rust crate [`aseprite-io`](https://github.com/spebern/aseprite-io) (0.2.0).

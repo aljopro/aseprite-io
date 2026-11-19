@@ -376,6 +376,11 @@ function replayFrameChunks(
     if (cel.extra) push(0x2006, encodeCelExtra(cel.extra));
     if (cel.userData) push(0x2020, encodeUserData(cel.userData));
   }
+  // Old palette chunks are replayed verbatim; append a modern palette override
+  // so a changed palette takes precedence when the file is read again.
+  if (frameIndex === 0 && file._paletteChanged) {
+    push(0x2019, encodePalette(file._palette));
+  }
   return chunks;
 }
 

@@ -444,10 +444,26 @@ describe('fixtures', () => {
     for (const { layer, frame } of linked) expect(file.resolveCel(layer, frame)).toBeDefined();
   });
 
-  it('indexed fixtures have palettes', () => {
-    const file = fixture('4f-index-4x4.aseprite');
-    expect(file.colorMode).toBe('indexed');
-    expect(file.palette.length).toBeGreaterThan(0);
+  it('saves edited indexed palettes while replaying unchanged fixtures byte-for-byte', () => {
+    const bytes = readFileSync(join(import.meta.dirname, 'fixtures', '4f-index-4x4.aseprite'));
+    const file = AsepriteFile.read(bytes);
+    expect([...file.write()]).toEqual([...bytes]);
+
+    const originalPalette = file.palette;
+    const palette = originalPalette.map((color) => ({ ...color }));
+    palette[2] = { r: 17, g: 83, b: 201, a: 255 };
+    file.setPalette(palette);
+
+    const reopened = AsepriteFile.read(file.write());
+    expect(reopened.palette[2]).toEqual(palette[2]);
+    expect(reopened.palette.filter((_, i) => i !== 2)).toEqual(
+      originalPalette.filter((_, i) => i !== 2),
+    );
+    expect(reopened.colorProfile).toEqual(file.colorProfile);
+    expect(reopened.frames).toEqual(file.frames);
+    expect([...reopened.cels()].map(({ layer, frame }) => [layer, frame])).toEqual(
+      [...file.cels()].map(({ layer, frame }) => [layer, frame]),
+    );
   });
 });
 
