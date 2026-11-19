@@ -15,6 +15,7 @@ import {
   type ColorProfile,
   type Layer,
   type LayerKind,
+  type Pixels,
   type PropertiesMap,
   type PropertyEntries,
   type PropertyValue,
@@ -22,6 +23,7 @@ import {
   type TilesetData,
   type UserData,
 } from './types.js';
+import { Decoded, getDecoded, setDecoded } from './pristine.js';
 import { inflate, type ReadLimits } from './zlib.js';
 
 /** Which entity a following User Data chunk (0x2020) attaches to. */
@@ -318,7 +320,7 @@ function readCelChunk(
       const compressed = r.rest();
       kind = {
         type: 'compressed',
-        pixels: { data: inflate(compressed, size), width: w, height: h },
+        pixels: trackedPixels(new Decoded(inflate(compressed, size), compressed, 0), w, h),
         x,
         y,
         originalCompressed: compressed,
@@ -353,6 +355,7 @@ function readCelChunk(
         tiles[i] = bitsPerTile === 8 ? view.getUint8(offset) :
           bitsPerTile === 16 ? view.getUint16(offset, true) : view.getUint32(offset, true);
       }
+      const cell = new Decoded(tiles, compressed, bitsPerTile);
       kind = {
         type: 'tilemap',
         width: w,
@@ -362,7 +365,12 @@ function readCelChunk(
         xFlipBitmask,
         yFlipBitmask,
         dFlipBitmask,
-        tiles,
+        get tiles() {
+          return getDecoded(cell);
+        },
+        set tiles(value: Uint32Array) {
+          setDecoded(cell, value);
+        },
         x,
         y,
         originalCompressed: compressed,
@@ -623,7 +631,17 @@ function readTilesetChunk(
     const compressed = r.read(r.dword());
     const size = tileWidth * tileHeight * tileCount * bytesPerPixel(file._colorMode);
     checkDecodedSize(size, limits, budget);
-    data = { type: 'embedded', pixels: inflate(compressed, size), originalCompressed: compressed };
+    const cell = new Decoded(inflate(compressed, size), compressed, 0);
+    data = {
+      type: 'embedded',
+      get pixels() {
+        return getDecoded(cell);
+      },
+      set pixels(value: Uint8Array) {
+        setDecoded(cell, value);
+      },
+      originalCompressed: compressed,
+    };
   }
   file._tilesets.push({
     id,
@@ -673,4 +691,18 @@ function parseMaskChunk(data: Uint8Array, file: AsepriteFile): void {
   r.pos -= 2;
   const name = r.string();
   file._legacyMasks.push({ x, y, width, height, name, bitmap: r.rest() });
+}
+
+/** Cel pixels whose `data` records when it is read or replaced (see pristine.ts). */
+function trackedPixels(cell: Decoded<Uint8Array>, width: number, height: number): Pixels {
+  return {
+    get data() {
+      return getDecoded(cell);
+    },
+    set data(value: Uint8Array) {
+      setDecoded(cell, value);
+    },
+    width,
+    height,
+  };
 }

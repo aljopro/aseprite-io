@@ -206,6 +206,8 @@ const updated = file.write();
 
 Unmodified data is written back byte for byte. Edited pixel data is detected and recompressed, and layers, slices or tilesets you add are included.
 
+Writing is fastest for data you never read: the original compressed bytes are reused as-is. Pixel buffers you have read are compared exactly with the original before reuse, which costs a decompression per cel.
+
 ## User data and properties
 
 ```ts
