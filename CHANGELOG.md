@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-## 0.2.0
+## 1.0.0
+
+First stable release. The public API now follows semantic versioning: breaking changes only in major versions.
 
 ### Security and correctness
 - Bound reader input, decoded buffers and aggregate pixel allocations; reject truncated, overlong or mismatched zlib streams. `AsepriteFile.read(input, limits)` accepts optional `ReadLimits` overrides ([#10](https://github.com/aljopro/aseprite-io/issues/10)).

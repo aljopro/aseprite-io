@@ -1,6 +1,6 @@
 {
   "name": "aseprite-io",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Read and write Aseprite .ase/.aseprite files in TypeScript. Works in browsers and Node.js.",
   "keywords": [
     "aseprite",
