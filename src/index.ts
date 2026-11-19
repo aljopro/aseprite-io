@@ -10,7 +10,7 @@
 export { AsepriteFile, type BinaryInput, type CelEntry } from './file.js';
 export { AsepriteError, type AsepriteErrorCode } from './errors.js';
 export type { WriteOptions } from './writer.js';
-export type { CompressionLevel } from './zlib.js';
+export type { CompressionLevel, ReadLimits } from './zlib.js';
 export {
   BLEND_MODES,
   EXTERNAL_FILE_TYPES,

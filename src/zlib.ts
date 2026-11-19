@@ -1,16 +1,37 @@
-import { unzlibSync, zlibSync } from 'fflate';
+import { Unzlib, zlibSync } from 'fflate';
 import { AsepriteError } from './errors.js';
 
-/**
- * Decompresses a zlib stream. With `expectedSize`, output is decoded straight
- * into a buffer of that size (as Aseprite does): data beyond it is ignored and
- * a shorter stream yields a shorter result.
- */
-export function inflate(data: Uint8Array, expectedSize?: number): Uint8Array {
+export interface ReadLimits {
+  maxInputBytes: number;
+  maxDecodedBytes: number;
+  maxTotalDecodedBytes: number;
+  maxDimension: number;
+}
+
+/** Decompress exactly the declared size, feeding bounded input chunks to fflate. */
+export function inflate(data: Uint8Array, expectedSize: number): Uint8Array {
   try {
-    return expectedSize !== undefined && expectedSize > 0
-      ? unzlibSync(data, { out: new Uint8Array(expectedSize) })
-      : unzlibSync(data);
+    if (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || data.length < 6) {
+      throw new Error('invalid zlib stream or decoded size');
+    }
+    const output = new Uint8Array(expectedSize);
+    let offset = 0;
+    const decoder = new Unzlib((chunk) => {
+      if (chunk.length > expectedSize - offset) throw new Error('decoded data exceeds declared size');
+      output.set(chunk, offset);
+      offset += chunk.length;
+    });
+    // A small compressed chunk bounds fflate's temporary output even for a bomb.
+    // Keep the trailer for the final push; fflate does not validate its checksum.
+    const end = data.length - 4;
+    for (let pos = 0; pos < end; pos += 256) {
+      decoder.push(data.subarray(pos, Math.min(end, pos + 256)), false);
+    }
+    decoder.push(data.subarray(end), true);
+    if (offset !== expectedSize || streamAdler32(data) !== adler32(output)) {
+      throw new Error('decoded size or zlib checksum mismatch');
+    }
+    return output;
   } catch (e) {
     throw new AsepriteError('DecompressionFailed', `failed to decompress zlib data: ${String(e)}`, {
       cause: e,
@@ -68,16 +89,21 @@ function streamAdler32(stream: Uint8Array): number | undefined {
  * compresses `data`. This keeps byte-perfect round trips for untouched content
  * while staying correct when pixel buffers were edited in place.
  *
- * The check compares `data` against the Adler-32 checksum in the zlib trailer
- * (the same integrity check zlib itself relies on), which costs a single pass
- * over the bytes instead of a full decompression.
+ * Adler-32 is a fast rejection only; equal checksums still require an exact
+ * byte comparison because collisions are possible.
  */
 export function reuseOrDeflate(
   data: Uint8Array,
   original: Uint8Array | undefined,
   level: CompressionLevel = 6,
 ): Uint8Array {
-  if (original && streamAdler32(original) === adler32(data)) return original;
+  if (original && streamAdler32(original) === adler32(data)) {
+    try {
+      if (bytesEqual(inflate(original, data.length), data)) return original;
+    } catch {
+      // Invalid stale streams must be recompressed, not reused.
+    }
+  }
   return deflate(data, level);
 }
 

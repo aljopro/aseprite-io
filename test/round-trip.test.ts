@@ -54,6 +54,20 @@ describe('byte-perfect round trip', () => {
     expect(cel.kind.pixels.data.every((b) => b === 7)).toBe(true);
   });
 
+  it('does not reuse compressed pixels after an Adler-32 collision edit', () => {
+    const file = new AsepriteFile(1, 1, 'rgba');
+    const layer = file.addLayer('L');
+    file.addFrame(100);
+    file.setCel(layer, 0, { data: new Uint8Array([10, 10, 10, 10]), width: 1, height: 1 });
+    const read = AsepriteFile.read(file.write());
+    const kind = read.cel(layer, 0)!.kind;
+    if (kind.type !== 'compressed') throw new Error('expected compressed cel');
+    kind.pixels.data.set([11, 8, 11, 10]);
+    const result = AsepriteFile.read(read.write()).cel(layer, 0)!.kind;
+    if (result.type !== 'compressed') throw new Error('expected compressed cel');
+    expect(result.pixels.data).toEqual(new Uint8Array([11, 8, 11, 10]));
+  });
+
   it('keeps layers added to a file that was read', () => {
     const bytes = new Uint8Array(readFileSync(join(FIXTURES, 'groups2.aseprite')));
     const file = AsepriteFile.read(bytes);

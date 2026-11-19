@@ -40,6 +40,14 @@ for (const tag of file.tags) console.log('tag:', tag.name, tag.fromFrame, '→',
 
 `AsepriteFile.read` accepts a `Uint8Array` (including a Node `Buffer`), an `ArrayBuffer`, or any `ArrayBufferView`.
 
+By default, reading enforces a 128 MiB input limit, a 64 MiB per decoded cel or tileset limit, a 256 MiB aggregate decoded-data limit, and a maximum cel/tile dimension of 16,384. Hosts can override individual limits:
+
+```ts
+const file = AsepriteFile.read(bytes, { maxTotalDecodedBytes: 64 * 1024 * 1024 });
+```
+
+`AsepriteFile.read` rejects oversized or truncated decoded streams with `AsepriteError`; limits are applied before decoded buffers are allocated.
+
 ### Getting pixels
 
 Cels are stored per layer and frame. Use `resolveCel` to follow linked cels:

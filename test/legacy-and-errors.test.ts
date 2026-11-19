@@ -21,6 +21,30 @@ function withExtraChunks(file: AsepriteFile, chunks: Array<{ type: number; data:
   return out;
 }
 
+function replaceCompressedCel(file: AsepriteFile, width: number, height: number, compressed: Uint8Array): Uint8Array {
+  const bytes = file.write();
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let pos = 144;
+  while (pos + 6 <= bytes.length) {
+    const size = view.getUint32(pos, true);
+    if (view.getUint16(pos + 4, true) === 0x2005) {
+      const data = pos + 6;
+      const output = new Uint8Array(bytes.length - size + 6 + 20 + compressed.length);
+      output.set(bytes.subarray(0, data + 16));
+      const outView = new DataView(output.buffer);
+      outView.setUint16(data + 16, width, true);
+      outView.setUint16(data + 18, height, true);
+      output.set(compressed, data + 20);
+      output.set(bytes.subarray(pos + size), data + 20 + compressed.length);
+      outView.setUint32(pos, 26 + compressed.length, true);
+      outView.setUint32(128, view.getUint32(128, true) - size + 26 + compressed.length, true);
+      outView.setUint32(0, output.length, true);
+      return output;
+    }
+    pos += size;
+  }
+  throw new Error('missing compressed cel');
+}
 const u16 = (v: number) => [v & 0xff, v >> 8];
 const u32 = (v: number) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >>> 24];
 
@@ -231,11 +255,27 @@ describe('zlib helpers', async () => {
       expect(adler32(data)).toBe(trailer);
     }
   });
-  it('inflate with an expected size truncates or shortens like Aseprite', () => {
+  it('rejects zero-sized cel bombs, mismatched and truncated output', () => {
+    const bomb = deflate(new Uint8Array(1024 * 1024));
+    const file = baseFile();
+    file.setCel(file.layerRef(0)!, 0, { data: new Uint8Array(16), width: 2, height: 2 });
+    const zeroCel = replaceCompressedCel(file, 0, 0, bomb);
+    expect(codeOf(() => AsepriteFile.read(zeroCel))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(bomb, 0))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(deflate(new Uint8Array(10)), 9))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(deflate(new Uint8Array(10)), 11))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(bomb, 32))).toBe('DecompressionFailed');
+    expect(codeOf(() => inflate(deflate(new Uint8Array(32)).subarray(0, 7), 32))).toBe('DecompressionFailed');
+  });
+  it('inflates valid streams into their exact declared size', () => {
     const data = new Uint8Array(100).map((_, i) => i);
-    expect([...inflate(deflate(data), 40)]).toEqual([...data.subarray(0, 40)]);
-    expect(inflate(deflate(data), 200).length).toBe(100);
-    expect([...inflate(deflate(data))]).toEqual([...data]);
+    expect(inflate(deflate(data), 100)).toEqual(data);
+    expect(inflate(deflate(new Uint8Array(0)), 0)).toEqual(new Uint8Array(0));
+  });
+
+  it('rejects input larger than configured limits', () => {
+    const file = baseFile();
+    expect(codeOf(() => AsepriteFile.read(file.write(), { maxInputBytes: 1 }))).toBe('FormatLimitExceeded');
   });
 });
 

@@ -1,3 +1,4 @@
+
 import { ByteReader } from './binary.js';
 import { AsepriteError } from './errors.js';
 import { AsepriteFile } from './file.js';
@@ -21,7 +22,7 @@ import {
   type TilesetData,
   type UserData,
 } from './types.js';
-import { inflate } from './zlib.js';
+import { inflate, type ReadLimits } from './zlib.js';
 
 /** Which entity a following User Data chunk (0x2020) attaches to. */
 type LastEntity =
@@ -34,7 +35,35 @@ type LastEntity =
   | { kind: 'tileset'; index: number }
   | { kind: 'tiles'; tileset: number; next: number };
 
-export function readAseprite(bytes: Uint8Array): AsepriteFile {
+export const DEFAULT_READ_LIMITS: ReadLimits = {
+  maxInputBytes: 128 * 1024 * 1024,
+  maxDecodedBytes: 64 * 1024 * 1024,
+  maxTotalDecodedBytes: 256 * 1024 * 1024,
+  maxDimension: 16384,
+};
+
+function checkDecodedSize(size: number, limits: ReadLimits, budget: { total: number }): void {
+  if (!Number.isSafeInteger(size) || size < 0 || size > limits.maxDecodedBytes ||
+      size > limits.maxTotalDecodedBytes - budget.total) {
+    throw new AsepriteError('FormatLimitExceeded', 'decoded data exceeds configured read limits');
+  }
+  budget.total += size;
+}
+
+function checkDimensions(width: number, height: number, limits: ReadLimits): void {
+  if (width > limits.maxDimension || height > limits.maxDimension) {
+    throw new AsepriteError('FormatLimitExceeded', 'cel dimensions exceed configured read limits');
+  }
+}
+
+export function readAseprite(bytes: Uint8Array, limits: ReadLimits = DEFAULT_READ_LIMITS): AsepriteFile {
+  if (Object.values(limits).some((limit) => !Number.isSafeInteger(limit) || limit < 0)) {
+    throw new AsepriteError('FormatLimitExceeded', 'read limits must be non-negative safe integers');
+  }
+  if (bytes.length > limits.maxInputBytes) {
+    throw new AsepriteError('FormatLimitExceeded', 'input exceeds configured read limit');
+  }
+  const budget = { total: 0 };
   const r = new ByteReader(bytes);
 
   // Header (128 bytes)
@@ -113,7 +142,7 @@ export function readAseprite(bytes: Uint8Array): AsepriteFile {
           break;
         }
         case 0x2005: {
-          const layer = readCelChunk(cr, file, frameIndex, colorMode);
+          const layer = readCelChunk(cr, file, frameIndex, colorMode, limits, budget);
           if (layer !== undefined) last = { kind: 'cel', layer, frame: frameIndex };
           order(layer);
           break;
@@ -155,7 +184,7 @@ export function readAseprite(bytes: Uint8Array): AsepriteFile {
           order();
           break;
         case 0x2023:
-          readTilesetChunk(cr, file);
+          readTilesetChunk(cr, file, limits, budget);
           last = { kind: 'tileset', index: file._tilesets.length - 1 };
           order();
           break;
@@ -252,6 +281,8 @@ function readCelChunk(
   file: AsepriteFile,
   frameIndex: number,
   colorMode: ColorMode,
+  limits: ReadLimits,
+  budget: { total: number },
 ): number | undefined {
   const layerIndex = r.word();
   const x = r.short();
@@ -266,7 +297,10 @@ function readCelChunk(
     case 0: {
       const w = r.word();
       const h = r.word();
-      const data = r.read(w * h * bytesPerPixel(colorMode));
+      checkDimensions(w, h, limits);
+      const size = w * h * bytesPerPixel(colorMode);
+      checkDecodedSize(size, limits, budget);
+      const data = r.read(size);
       kind = { type: 'raw', pixels: { data, width: w, height: h }, x, y };
       break;
     }
@@ -276,10 +310,13 @@ function readCelChunk(
     case 2: {
       const w = r.word();
       const h = r.word();
+      checkDimensions(w, h, limits);
+      const size = w * h * bytesPerPixel(colorMode);
+      checkDecodedSize(size, limits, budget);
       const compressed = r.rest();
       kind = {
         type: 'compressed',
-        pixels: { data: inflate(compressed, w * h * bytesPerPixel(colorMode)), width: w, height: h },
+        pixels: { data: inflate(compressed, size), width: w, height: h },
         x,
         y,
         originalCompressed: compressed,
@@ -295,9 +332,13 @@ function readCelChunk(
       const yFlipBitmask = r.dword();
       const dFlipBitmask = r.dword();
       r.skip(10);
+      checkDimensions(w, h, limits);
+      const size = w * h * Math.ceil(bitsPerTile / 8);
+      checkDecodedSize(size, limits, budget);
       const compressed = r.rest();
-      const raw = inflate(compressed, w * h * Math.ceil(bitsPerTile / 8));
+      const raw = inflate(compressed, size);
       const count = Math.min(w * h, Math.floor(raw.length / 4));
+      checkDecodedSize(count * 4, limits, budget);
       const tiles = new Uint32Array(count);
       const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
       for (let i = 0; i < count; i++) tiles[i] = view.getUint32(i * 4, true);
@@ -546,7 +587,12 @@ function readSliceChunk(r: ByteReader, file: AsepriteFile): void {
   file._slices.push({ name, keys, hasNinePatch, hasPivot });
 }
 
-function readTilesetChunk(r: ByteReader, file: AsepriteFile): void {
+function readTilesetChunk(
+  r: ByteReader,
+  file: AsepriteFile,
+  limits: ReadLimits,
+  budget: { total: number },
+): void {
   const id = r.dword();
   const flags = r.dword();
   const tileCount = r.dword();
@@ -563,9 +609,12 @@ function readTilesetChunk(r: ByteReader, file: AsepriteFile): void {
   if (flags & TilesetFlags.EmbeddedTiles) {
     const compressed = r.read(r.dword());
     const size = tileWidth * tileHeight * tileCount * bytesPerPixel(file._colorMode);
+    checkDimensions(tileWidth, tileHeight, limits);
+    checkDecodedSize(size, limits, budget);
     data = { type: 'embedded', pixels: inflate(compressed, size), originalCompressed: compressed };
   }
 
+  checkDecodedSize(tileCount * 4, limits, budget);
   file._tilesets.push({
     id,
     flags,

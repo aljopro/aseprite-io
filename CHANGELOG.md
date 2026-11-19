@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Bound reader input, decoded buffers and aggregate pixel allocations; reject truncated or mismatched zlib streams. `AsepriteFile.read` accepts optional read-limit overrides.
+- Verify cached compressed data against exact decoded bytes so Adler-32 collisions cannot discard pixel edits.
 
 ## 0.1.0
 
