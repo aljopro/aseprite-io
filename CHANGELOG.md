@@ -7,6 +7,7 @@
 - Write valid zlib streams at compression level 0 for payloads whose length is a multiple of 65,535 bytes; the previous output ended the stream after a block marked final and was rejected by strict decoders.
 
 - Preserve edited palettes when saving indexed files with legacy palette chunks.
+- Preserve 8-, 16- and 32-bit tilemap entries when reading and saving.
 
 ## 0.1.0
 

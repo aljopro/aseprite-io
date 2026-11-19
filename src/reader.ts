@@ -329,18 +329,18 @@ function readCelChunk(
       const w = r.word();
       const h = r.word();
       const bitsPerTile = r.word();
+      if (bitsPerTile !== 8 && bitsPerTile !== 16 && bitsPerTile !== 32) {
+        throw new AsepriteError('UnsupportedTileBitDepth', `unsupported tile bit depth ${bitsPerTile}`);
+      }
       const tileIdBitmask = r.dword();
       const xFlipBitmask = r.dword();
       const yFlipBitmask = r.dword();
       const dFlipBitmask = r.dword();
       r.skip(10);
-      // The current ASE format writes 32-bit tile entries. The public model and
-      // writer also store each tile as a Uint32; reject other widths rather
-      // than silently truncating their packed representation.
-      if (bitsPerTile !== 32) {
-        throw new AsepriteError('UnsupportedTileBitDepth', `unsupported tile bit depth ${bitsPerTile}; only 32-bit tiles are supported`);
-      }
-      const size = w * h * 4;
+      // Each entry is widened into the model's Uint32 without losing bits and
+      // is written back at its declared width.
+      const bytesPerTile = bitsPerTile / 8;
+      const size = w * h * bytesPerTile;
       const count = w * h;
       checkDimensions(w, h, limits);
       checkDecodedSize(size, limits, budget);
@@ -348,7 +348,11 @@ function readCelChunk(
       const raw = inflate(compressed, size);
       const tiles = new Uint32Array(count);
       const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-      for (let i = 0; i < count; i++) tiles[i] = view.getUint32(i * 4, true);
+      for (let i = 0; i < count; i++) {
+        const offset = i * bytesPerTile;
+        tiles[i] = bitsPerTile === 8 ? view.getUint8(offset) :
+          bitsPerTile === 16 ? view.getUint16(offset, true) : view.getUint32(offset, true);
+      }
       kind = {
         type: 'tilemap',
         width: w,
