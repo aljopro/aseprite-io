@@ -103,6 +103,6 @@ describe('tilemap bit widths', () => {
   it('rejects a malformed width instead of silently decoding 32-bit values', () => {
     const bytes = sample(8, [1, 2, 3, 4]);
     bytes.writeUInt16LE(24, tilemapChunk(bytes) + 26);
-    expect(() => AsepriteFile.read(bytes)).toThrow(/unsupported tile width 24 bits/);
+    expect(() => AsepriteFile.read(bytes)).toThrow(/unsupported tile bit depth 24/);
   });
 });
