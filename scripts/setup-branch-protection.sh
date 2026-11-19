@@ -16,7 +16,7 @@ if [ -n "$existing" ]; then
   path="repos/$repo/rulesets/$existing"
 fi
 
-gh api --method "$method" "$path" --input - <<'JSON'
+gh api --method "$method" "$path" --silent --input - <<'JSON'
 {
   "name": "Protect main",
   "target": "branch",
