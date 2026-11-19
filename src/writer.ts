@@ -25,6 +25,7 @@ import {
   type Tileset,
   type UserData,
 } from './types.js';
+import { isPristine } from './pristine.js';
 import { reuseOrDeflate, type CompressionLevel } from './zlib.js';
 
 const EMPTY_USER_DATA: UserData = { properties: [] };
@@ -426,7 +427,11 @@ function encodeCel(cel: Cel, layerIndex: number, level: CompressionLevel): Uint8
       break;
     case 'compressed':
       w.word(k.pixels.width).word(k.pixels.height);
-      w.bytes(reuseOrDeflate(k.pixels.data, k.originalCompressed, level));
+      w.bytes(
+        isPristine(k.pixels, 'data', k.originalCompressed)
+          ? k.originalCompressed!
+          : reuseOrDeflate(k.pixels.data, k.originalCompressed, level),
+      );
       break;
     case 'linked':
       w.word(k.sourceFrame);
@@ -438,6 +443,10 @@ function encodeCel(cel: Cel, layerIndex: number, level: CompressionLevel): Uint8
       w.word(k.width).word(k.height).word(k.bitsPerTile);
       w.dword(k.tileIdBitmask).dword(k.xFlipBitmask).dword(k.yFlipBitmask).dword(k.dFlipBitmask);
       w.zeros(10);
+      if (isPristine(k, 'tiles', k.originalCompressed, k.bitsPerTile)) {
+        w.bytes(k.originalCompressed!);
+        break;
+      }
       const tileBytes = new ByteWriter(k.tiles.length * (k.bitsPerTile / 8));
       for (const t of k.tiles) {
         if ((k.bitsPerTile === 8 && t > 0xff) || (k.bitsPerTile === 16 && t > 0xffff)) {
@@ -525,7 +534,9 @@ function encodeTileset(tileset: Tileset, level: CompressionLevel): Uint8Array {
   if (tileset.flags & TilesetFlags.EmbeddedTiles) {
     const compressed =
       data.type === 'embedded'
-        ? reuseOrDeflate(data.pixels, data.originalCompressed, level)
+        ? isPristine(data, 'pixels', data.originalCompressed)
+          ? data.originalCompressed!
+          : reuseOrDeflate(data.pixels, data.originalCompressed, level)
         : reuseOrDeflate(new Uint8Array(0), undefined, level);
     w.dword(compressed.length).bytes(compressed);
   }

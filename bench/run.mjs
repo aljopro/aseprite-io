@@ -46,6 +46,36 @@ function makeManyFrames() {
   return file;
 }
 
+/** Issue #15's workload: 64×64 RGBA, 4 layers, 100 frames, 400 compressed cels. */
+function makeMedium() {
+  const W = 64, H = 64;
+  const file = new AsepriteFile(W, H, 'rgba');
+  const layers = Array.from({ length: 4 }, (_, i) => file.addLayer(`L${i}`));
+  let seed = 1;
+  const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let f = 0; f < 100; f++) {
+    file.addFrame(100);
+    for (const layer of layers) {
+      const data = new Uint8Array(W * H * 4);
+      for (let i = 0; i < W * H; i++) {
+        const block = (((i % W) >> 2) + ((i / W) >> 2) + f + layer) % 5;
+        if (block === 0) continue;
+        data[i * 4] = block * 40;
+        data[i * 4 + 1] = rand() < 0.1 ? 200 : block * 30;
+        data[i * 4 + 2] = 90;
+        data[i * 4 + 3] = 255;
+      }
+      file.setCel(layer, f, createPixels(data, W, H, 'rgba'));
+    }
+  }
+  return file;
+}
+
+const medium = makeMedium().write();
+const mediumRead = AsepriteFile.read(medium);
+const mediumTouched = AsepriteFile.read(medium);
+for (const { cel } of mediumTouched.cels()) if (cel.kind.type === 'compressed') void cel.kind.pixels.data;
+
 const large = makeLarge();
 const largeBytes = large.write();
 const largeRead = AsepriteFile.read(largeBytes);
@@ -58,6 +88,9 @@ const bench = new Bench({ time: 1500, warmupTime: 300 });
 bench
   .add('small: read', () => AsepriteFile.read(fixture))
   .add('small: read + write', () => AsepriteFile.read(fixture).write())
+  .add('medium: read', () => AsepriteFile.read(medium))
+  .add('medium: write after read', () => mediumRead.write())
+  .add('medium: write after reading every cel\'s pixels', () => mediumTouched.write())
   .add('large: read', () => AsepriteFile.read(largeBytes))
   .add('large: write after read (reuse compressed)', () => largeRead.write())
   .add('large: write new (deflate every cel)', () => large.write())
