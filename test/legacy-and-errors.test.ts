@@ -332,7 +332,7 @@ describe('zlib helpers', async () => {
     expect(codeOf(() => AsepriteFile.read(external.write(), { maxDimension: 4 }))).toBe('FormatLimitExceeded');
   });
 
-  it('rejects non-32-bit tilemap cels without truncating tiles', () => {
+  it('rejects a narrow tilemap header over 32-bit payload data', () => {
     const file = baseFile();
     const tileset = file.addTileset({
       id: 0, flags: TilesetFlags.EmbeddedTiles, name: 't', tileCount: 1,
@@ -342,13 +342,7 @@ describe('zlib helpers', async () => {
     const layer = file.addTilemapLayer('tiles', tileset);
     file.setTilemapCel(layer, 0, [1], 1, 1);
     for (const bitDepth of [8, 16]) {
-      expect(codeOf(() => AsepriteFile.read(setTilemapBits(file, bitDepth)))).toBe('UnsupportedTileBitDepth');
-    }
-    const cel = file.resolveCel(layer, 0);
-    expect(cel?.kind.type).toBe('tilemap');
-    if (cel?.kind.type === 'tilemap') {
-      cel.kind.bitsPerTile = 16;
-      expect(codeOf(() => file.write())).toBe('UnsupportedTileBitDepth');
+      expect(codeOf(() => AsepriteFile.read(setTilemapBits(file, bitDepth)))).toBe('DecompressionFailed');
     }
   });
   it('rejects compressed suffixes, incomplete blocks and checksum mismatches', () => {

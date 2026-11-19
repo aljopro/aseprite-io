@@ -432,14 +432,21 @@ function encodeCel(cel: Cel, layerIndex: number, level: CompressionLevel): Uint8
       w.word(k.sourceFrame);
       break;
     case 'tilemap': {
-      if (k.bitsPerTile !== 32) {
-        throw new AsepriteError('UnsupportedTileBitDepth', `unsupported tile bit depth ${k.bitsPerTile}; only 32-bit tiles are supported`);
+      if (k.bitsPerTile !== 8 && k.bitsPerTile !== 16 && k.bitsPerTile !== 32) {
+        throw new AsepriteError('UnsupportedTileBitDepth', `unsupported tile bit depth ${k.bitsPerTile}`);
       }
       w.word(k.width).word(k.height).word(k.bitsPerTile);
       w.dword(k.tileIdBitmask).dword(k.xFlipBitmask).dword(k.yFlipBitmask).dword(k.dFlipBitmask);
       w.zeros(10);
-      const tileBytes = new ByteWriter(k.tiles.length * 4);
-      for (const t of k.tiles) tileBytes.dword(t);
+      const tileBytes = new ByteWriter(k.tiles.length * (k.bitsPerTile / 8));
+      for (const t of k.tiles) {
+        if ((k.bitsPerTile === 8 && t > 0xff) || (k.bitsPerTile === 16 && t > 0xffff)) {
+          throw new AsepriteError('FormatLimitExceeded', `tile value ${t} exceeds ${k.bitsPerTile} bits`);
+        }
+        if (k.bitsPerTile === 8) tileBytes.byte(t);
+        else if (k.bitsPerTile === 16) tileBytes.word(t);
+        else tileBytes.dword(t);
+      }
       w.bytes(reuseOrDeflate(tileBytes.finish(), k.originalCompressed, level));
       break;
     }
