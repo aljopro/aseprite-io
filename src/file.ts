@@ -84,6 +84,7 @@ export class AsepriteFile {
   /** @internal */ _grid: GridInfo = { x: 0, y: 0, width: 16, height: 16 };
   /** @internal */ _colorProfile: ColorProfile | undefined = undefined;
   /** @internal */ _palette: Color[] = [];
+  /** @internal */ _paletteChanged = false;
   /** @internal */ _layers: Layer[] = [];
   /** @internal */ _frames: Frame[] = [];
   /** @internal */ _tags: Tag[] = [];
@@ -400,6 +401,10 @@ export class AsepriteFile {
         `format limit exceeded for palette: ${colors.length} > 256`,
       );
     }
+    this._paletteChanged ||= colors.length !== this._palette.length || colors.some((c, i) => {
+      const old = this._palette[i];
+      return !old || c.r !== old.r || c.g !== old.g || c.b !== old.b || c.a !== old.a || c.name !== old.name;
+    });
     this._palette = colors.map((c) => ({ ...c }));
   }
 
